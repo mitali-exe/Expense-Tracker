@@ -90,7 +90,7 @@ class _RegistrationPageState extends State<RegistrationPage> {
         title: const Text('Register'),
         backgroundColor: Colors.blue,
       ),
-      body: Padding(
+      body: SingleChildScrollView( // Changed: Wrapped body with SingleChildScrollView
         padding: const EdgeInsets.all(24.0),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,

@@ -821,7 +821,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildTransactions() {
-    final transactionsToShow = _filteredTransactionsByQuery;
+    final transactionsToShow = _filteredTransactionsByQuery.where((t) => !t.isSaving).toList();
 
     return Column(
       children: [
@@ -1213,12 +1213,18 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              budget.category,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  budget.category,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                _buildBudgetItemActions(budget), // New: Actions for modify/delete
+              ],
             ),
             const SizedBox(height: 8),
             LinearProgressIndicator(
@@ -1238,6 +1244,65 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  // New: Budget actions (Modify/Delete)
+  Widget _buildBudgetItemActions(Budget budget) {
+    return PopupMenuButton<String>(
+      onSelected: (value) {
+        if (value == 'modify') {
+          _showAddBudgetDialog(context, budget: budget);
+        } else if (value == 'delete') {
+          _deleteBudget(budget);
+        }
+      },
+      itemBuilder: (context) => [
+        const PopupMenuItem(
+          value: 'modify',
+          child: Text('Modify Budget'),
+        ),
+        const PopupMenuItem(
+          value: 'delete',
+          child: Text('Delete Budget'),
+        ),
+      ],
+    );
+  }
+
+  void _deleteBudget(Budget budget) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Budget'),
+        content: Text('Are you sure you want to delete the budget for ${budget.category}?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              try {
+                await DatabaseHelper.instance.deleteBudget(budget.category, widget.currentUser.id);
+                setState(() {
+                  _budgets.removeWhere((b) => b.category == budget.category);
+                });
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('${budget.category} budget deleted')),
+                );
+              } catch (e) {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Error deleting budget: $e')),
+                );
+              }
+            },
+            child: const Text('Delete'),
+          ),
+        ],
       ),
     );
   }
@@ -1319,124 +1384,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _showChangePasswordDialog() {
-    final oldPasswordController = TextEditingController();
-    final newPasswordController = TextEditingController();
-    final confirmPasswordController = TextEditingController();
-
-    showDialog(
-      context: context,
-      builder: (BuildContext outerContext) {
-        return AlertDialog(
-          title: const Text('Change Password'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: oldPasswordController,
-                  decoration: const InputDecoration(
-                    labelText: 'Current Password',
-                    border: OutlineInputBorder(),
-                  ),
-                  obscureText: true,
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: newPasswordController,
-                  decoration: const InputDecoration(
-                    labelText: 'New Password',
-                    border: OutlineInputBorder(),
-                  ),
-                  obscureText: true,
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: confirmPasswordController,
-                  decoration: const InputDecoration(
-                    labelText: 'Confirm New Password',
-                    border: OutlineInputBorder(),
-                  ),
-                  obscureText: true,
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(outerContext).pop();
-              },
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                final oldPassword = oldPasswordController.text.trim();
-                final newPassword = newPasswordController.text.trim();
-                final confirmPassword = confirmPasswordController.text.trim();
-
-                if (oldPassword.isEmpty || newPassword.isEmpty || confirmPassword.isEmpty) {
-                  ScaffoldMessenger.of(outerContext).showSnackBar(
-                    const SnackBar(content: Text('Please fill all fields')),
-                  );
-                  return;
-                }
-
-                if (newPassword != confirmPassword) {
-                  ScaffoldMessenger.of(outerContext).showSnackBar(
-                    const SnackBar(content: Text('New passwords do not match')),
-                  );
-                  return;
-                }
-
-                if (newPassword.length < 6) {
-                  ScaffoldMessenger.of(outerContext).showSnackBar(
-                    const SnackBar(content: Text('New password must be at least 6 characters')),
-                  );
-                  return;
-                }
-
-                try {
-                  // Verify old password
-                  final user = await DatabaseHelper.instance.loginUser(widget.currentUser.email, oldPassword);
-                  if (user == null) {
-                    ScaffoldMessenger.of(outerContext).showSnackBar(
-                      const SnackBar(content: Text('Current password is incorrect')),
-                    );
-                    return;
-                  }
-
-                  // Update password (create a new User object with hashed password)
-                  final updatedUser = User(
-                    id: widget.currentUser.id,
-                    username: widget.currentUser.username,
-                    email: widget.currentUser.email,
-                    password: newPassword,  // Will be hashed in toRegistrationMap
-                  );
-
-                  // Since registerUser updates, we can use a custom update method or reuse logic
-                  // For simplicity, update the password directly in DB
-                  final hashedNewPassword = DatabaseHelper.instance.hashPassword(newPassword);
-                  await DatabaseHelper.instance.updateUserPassword(widget.currentUser.id, hashedNewPassword);
-
-                  ScaffoldMessenger.of(outerContext).showSnackBar(
-                    const SnackBar(content: Text('Password changed successfully')),
-                  );
-                  Navigator.of(outerContext).pop();
-                } catch (e) {
-                  ScaffoldMessenger.of(outerContext).showSnackBar(
-                    SnackBar(content: Text('Error changing password: $e')),
-                  );
-                }
-              },
-              child: const Text('Change'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
 
   Widget _buildProfileOption(IconData icon, String title, {VoidCallback? onTap}) {
     return Container(
@@ -1455,6 +1402,162 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
+
+  void _showChangePasswordDialog() {
+    final oldPasswordController = TextEditingController();
+    final newPasswordController = TextEditingController();
+    final confirmPasswordController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (BuildContext outerContext) {
+        return StatefulBuilder(
+          builder: (BuildContext dialogContext, StateSetter setStateDialog) {
+            bool isOldPasswordVisible = false;
+            bool isNewPasswordVisible = false;
+            bool isConfirmPasswordVisible = false;
+            return AlertDialog(
+              title: const Text('Change Password'),
+              content: SingleChildScrollView( // Changed: Added SingleChildScrollView to fix overflow
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: oldPasswordController,
+                      decoration: InputDecoration(
+                        labelText: 'Current Password',
+                        border: const OutlineInputBorder(),
+                        suffixIcon: IconButton( // Added password toggle
+                          icon: Icon(
+                            isOldPasswordVisible ? Icons.visibility : Icons.visibility_off,
+                          ),
+                          onPressed: () {
+                            setStateDialog(() {
+                              isOldPasswordVisible = !isOldPasswordVisible;
+                            });
+                          },
+                        ),
+                      ),
+                      obscureText: !isOldPasswordVisible, // Toggle visibility
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: newPasswordController,
+                      decoration: InputDecoration(
+                        labelText: 'New Password',
+                        border: const OutlineInputBorder(),
+                        suffixIcon: IconButton( // Added password toggle
+                          icon: Icon(
+                            isNewPasswordVisible ? Icons.visibility : Icons.visibility_off,
+                          ),
+                          onPressed: () {
+                            setStateDialog(() {
+                              isNewPasswordVisible = !isNewPasswordVisible;
+                            });
+                          },
+                        ),
+                      ),
+                      obscureText: !isNewPasswordVisible, // Toggle visibility
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: confirmPasswordController,
+                      decoration: InputDecoration(
+                        labelText: 'Confirm New Password',
+                        border: const OutlineInputBorder(),
+                        suffixIcon: IconButton( // Added password toggle
+                          icon: Icon(
+                            isConfirmPasswordVisible ? Icons.visibility : Icons.visibility_off,
+                          ),
+                          onPressed: () {
+                            setStateDialog(() {
+                              isConfirmPasswordVisible = !isConfirmPasswordVisible;
+                            });
+                          },
+                        ),
+                      ),
+                      obscureText: !isConfirmPasswordVisible, // Toggle visibility
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.of(outerContext).pop();
+                  },
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    final oldPassword = oldPasswordController.text.trim();
+                    final newPassword = newPasswordController.text.trim();
+                    final confirmPassword = confirmPasswordController.text.trim();
+
+                    if (oldPassword.isEmpty || newPassword.isEmpty || confirmPassword.isEmpty) {
+                      ScaffoldMessenger.of(outerContext).showSnackBar(
+                        const SnackBar(content: Text('Please fill all fields')),
+                      );
+                      return;
+                    }
+
+                    if (newPassword != confirmPassword) {
+                      ScaffoldMessenger.of(outerContext).showSnackBar(
+                        const SnackBar(content: Text('New passwords do not match')),
+                      );
+                      return;
+                    }
+
+                    if (newPassword.length < 6) {
+                      ScaffoldMessenger.of(outerContext).showSnackBar(
+                        const SnackBar(content: Text('New password must be at least 6 characters')),
+                      );
+                      return;
+                    }
+
+                    try {
+                      // Verify old password
+                      final user = await DatabaseHelper.instance.loginUser(widget.currentUser.email, oldPassword);
+                      if (user == null) {
+                        ScaffoldMessenger.of(outerContext).showSnackBar(
+                          const SnackBar(content: Text('Current password is incorrect')),
+                        );
+                        return;
+                      }
+
+                      // Update password (create a new User object with hashed password)
+                      final updatedUser = User(
+                        id: widget.currentUser.id,
+                        username: widget.currentUser.username,
+                        email: widget.currentUser.email,
+                        password: newPassword,  // Will be hashed in toRegistrationMap
+                      );
+
+                      // Since registerUser updates, we can use a custom update method or reuse logic
+                      // For simplicity, update the password directly in DB
+                      final hashedNewPassword = DatabaseHelper.instance.hashPassword(newPassword);
+                      await DatabaseHelper.instance.updateUserPassword(widget.currentUser.id, hashedNewPassword);
+
+                      ScaffoldMessenger.of(outerContext).showSnackBar(
+                        const SnackBar(content: Text('Password changed successfully')),
+                      );
+                      Navigator.of(outerContext).pop();
+                    } catch (e) {
+                      ScaffoldMessenger.of(outerContext).showSnackBar(
+                        SnackBar(content: Text('Error changing password: $e')),
+                      );
+                    }
+                  },
+                  child: const Text('Change'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
 
   Widget _buildAnalysis() {
     return SingleChildScrollView(
@@ -1827,18 +1930,25 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _showAddBudgetDialog(BuildContext context) {
-    final budgetController = TextEditingController();
-    String selectedCategory = _categories.isNotEmpty ? _categories.first : 'Other';
+  void _showAddBudgetDialog(BuildContext context, {Budget? budget}) { // Added optional Budget parameter
+    final budgetController = TextEditingController(text: budget?.allocated.toString() ?? '');
+    String selectedCategory = budget?.category ?? (_categories.isNotEmpty ? _categories.first : 'Other');
     final newCategoryController = TextEditingController();
-    bool isAddingNewCategory = false;
+    bool isAddingNewCategory = budget == null ? false : false; // Can't add new category when modifying existing
+
+    if (budget != null) {
+      // Ensure the budget category is in the list for editing dropdown
+      if (!_categories.contains(budget.category)) {
+        selectedCategory = _categories.isNotEmpty ? _categories.first : 'Other';
+      }
+    }
 
     showDialog(
       context: context,
       builder: (BuildContext outerContext) {
         return StatefulBuilder(builder: (BuildContext dialogContext, StateSetter setStateDialog) {
           return AlertDialog(
-            title: const Text('Add / Edit Budget'),
+            title: Text(budget == null ? 'Add New Budget' : 'Edit Budget: ${budget.category}'),
             content: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -1882,20 +1992,21 @@ class _HomeScreenState extends State<HomeScreen> {
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
                   ),
                   const SizedBox(height: 16),
-                  TextButton.icon(
-                    icon: Icon(isAddingNewCategory ? Icons.cancel : Icons.add),
-                    label: Text(isAddingNewCategory
-                        ? 'Cancel New Category'
-                        : 'Add New Category'),
-                    onPressed: () {
-                      setStateDialog(() {
-                        isAddingNewCategory = !isAddingNewCategory;
-                        if (!isAddingNewCategory) {
-                          newCategoryController.clear();
-                        }
-                      });
-                    },
-                  ),
+                  if (budget == null) // Only allow adding new categories when adding a new budget
+                    TextButton.icon(
+                      icon: Icon(isAddingNewCategory ? Icons.cancel : Icons.add),
+                      label: Text(isAddingNewCategory
+                          ? 'Cancel New Category'
+                          : 'Add New Category'),
+                      onPressed: () {
+                        setStateDialog(() {
+                          isAddingNewCategory = !isAddingNewCategory;
+                          if (!isAddingNewCategory) {
+                            newCategoryController.clear();
+                          }
+                        });
+                      },
+                    ),
                 ],
               ),
             ),
@@ -1954,7 +2065,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
                   try {
                     final existingBudgetIndex = _budgets.indexWhere(
-                            (budget) => budget.category == categoryToUse);
+                            (b) => b.category == categoryToUse);
                     if (existingBudgetIndex >= 0) {
                       // Update existing budget
                       await DatabaseHelper.instance.updateBudget(newBudget, widget.currentUser.id);
@@ -1969,6 +2080,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       });
                     }
                     Navigator.of(outerContext).pop();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Budget for $categoryToUse saved')),
+                    );
                   } catch (e) {
                     ScaffoldMessenger.of(outerContext).showSnackBar(
                       SnackBar(content: Text('Error saving budget: $e')),
@@ -1984,6 +2098,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 }
+
 
 /// Search Delegate for Transactions
 class TransactionSearchDelegate extends SearchDelegate<Transaction?> {

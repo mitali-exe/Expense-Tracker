@@ -362,6 +362,18 @@ class DatabaseHelper {
     );
   }
 
+  // New: Delete Budget
+  Future<void> deleteBudget(String category, int userId) async {
+    final db = await database;
+    await db.delete(
+      'budgets',
+      where: 'category = ? AND user_id = ?',
+      whereArgs: [category, userId],
+    );
+  }
+
+
+
   Future<void> updateTransaction(Transaction transaction, int userId) async {
     final db = await database;
     final map = transaction.toMap();
@@ -400,6 +412,32 @@ class DatabaseHelper {
     map['user_id'] = userId;
     await db.insert('savings_goals', map);
   }
+
+  // New: Update Savings Goal
+  Future<void> updateSavingsGoal(SavingsGoal goal, int userId) async {
+    final db = await database;
+    final map = goal.toMap();
+    map['user_id'] = userId;
+    await db.update(
+      'savings_goals',
+      map,
+      where: 'id = ? AND user_id = ?',
+      whereArgs: [goal.id, userId],
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  // New: Delete Savings Goal
+  Future<void> deleteSavingsGoal(String id, int userId) async {
+    final db = await database;
+    await db.delete(
+      'savings_goals',
+      where: 'id = ? AND user_id = ?',
+      whereArgs: [id, userId],
+    );
+  }
+
+
 
   Future<List<SavingsGoal>> getAllSavingsGoals(int userId) async {
     final db = await database;
