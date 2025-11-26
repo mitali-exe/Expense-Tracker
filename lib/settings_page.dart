@@ -34,7 +34,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _selectedCurrency = widget.selectedCurrency;
   }
 
-  final List<String> _currencies = ['USD', 'EUR', 'GBP', 'INR', 'JPY'];
+  final List<String> _currencies = ['INR', 'EUR', 'GBP', 'USD', 'JPY'];
 
   void _exportData() async {
     final transactions = await DatabaseHelper.instance.getAllTransactions(widget.userId);

@@ -12,6 +12,7 @@ import 'package:csv/csv.dart';
 import 'package:file_selector/file_selector.dart';
 import 'dart:io';
 import 'savings_page.dart';
+import 'package:image_picker/image_picker.dart';
 
 void main() {
   runApp(const MyMoneyApp());
@@ -27,7 +28,7 @@ class MyMoneyApp extends StatefulWidget {
 class _MyMoneyAppState extends State<MyMoneyApp> {
   bool _isDarkTheme = false;
   User? _currentUser;
-  String _selectedCurrency = 'USD'; // Default currency
+  String _selectedCurrency = 'INR'; // Default currency
 
   @override
   void initState() {
@@ -57,7 +58,7 @@ class _MyMoneyAppState extends State<MyMoneyApp> {
 
   Future<void> _loadPersistedCurrency() async {
     final prefs = await SharedPreferences.getInstance();
-    final currency = prefs.getString('selected_currency') ?? 'USD';
+    final currency = prefs.getString('selected_currency') ?? 'INR';
     setState(() {
       _selectedCurrency = currency;
     });
@@ -110,6 +111,7 @@ class _MyMoneyAppState extends State<MyMoneyApp> {
     });
     _clearPersistedUser();
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -175,12 +177,13 @@ class AppWrapper extends StatelessWidget {
         onThemeChanged: onThemeChanged,
         onCurrencyChanged: onCurrencyChanged,
         onLogout: onLogout,
+        onUserChanged: onUserChanged,
       );
     }
   }
 }
 
-// Updated HomeScreen to accept currency and display it
+
 class HomeScreen extends StatefulWidget {
   final User currentUser;
   final bool isDarkTheme;
@@ -188,6 +191,7 @@ class HomeScreen extends StatefulWidget {
   final ValueChanged<bool> onThemeChanged;
   final ValueChanged<String> onCurrencyChanged;
   final VoidCallback onLogout;
+  final ValueChanged<User?> onUserChanged;
 
   const HomeScreen({
     super.key,
@@ -197,6 +201,7 @@ class HomeScreen extends StatefulWidget {
     required this.onThemeChanged,
     required this.onCurrencyChanged,
     required this.onLogout,
+    required this.onUserChanged,
   });
 
   @override
@@ -232,6 +237,8 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadDataFromDatabase();
   }
 
+
+
   Future<void> _loadDataFromDatabase() async {
     try {
       final transactions = await DatabaseHelper.instance.getAllTransactions(widget.currentUser.id);
@@ -248,6 +255,74 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
   }
+
+  // In _HomeScreenState in main.dart
+
+  Future<void> _pickProfilePhoto() async {
+    final picker = ImagePicker();
+    final source = await showDialog<ImageSource>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Select Image Source'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, ImageSource.camera),
+            child: const Text('Camera'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, ImageSource.gallery),
+            child: const Text('Gallery'),
+          ),
+        ],
+      ),
+    );
+
+    if (source != null) {
+      try {
+        final pickedFile = await picker.pickImage(source: source);
+        if (pickedFile != null && pickedFile.path.isNotEmpty) {
+          // Check if file exists
+          final file = File(pickedFile.path);
+          if (await file.exists()) {
+            print('Selected image path: ${pickedFile.path}');  // Debug
+            // Save path to database
+            await DatabaseHelper.instance.updateUserProfilePhoto(widget.currentUser.id, pickedFile.path);
+            print('Database updated');  // Debug
+            // Create a new User object with updated photo
+            final updatedUser = User(
+              id: widget.currentUser.id,
+              username: widget.currentUser.username,
+              email: widget.currentUser.email,
+              password: widget.currentUser.password,
+              profilePhoto: pickedFile.path,
+            );
+            // Update the parent widget's currentUser via callback
+            widget.onUserChanged(updatedUser);
+            print('User updated in state');  // Debug
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Profile photo updated')),
+            );
+          } else {
+            print('File does not exist: ${pickedFile.path}');  // Debug
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Selected file is invalid')),
+            );
+          }
+        } else {
+          print('No file selected or path is empty');  // Debug
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No image selected')),
+          );
+        }
+      } catch (e) {
+        print('Error picking or saving photo: $e');  // Debug
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error updating photo: $e')),
+        );
+      }
+    }
+  }
+
 
   void _onItemTapped(int index) {
     setState(() {
@@ -1312,17 +1387,28 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Container(
-            width: 120,
-            height: 120,
-            decoration: BoxDecoration(
-              color: widget.isDarkTheme ? Colors.blue[300] : Colors.blue[100],
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              Icons.person,
-              size: 60,
-              color: widget.isDarkTheme ? Colors.white : Colors.blue,
+          GestureDetector(  // Make avatar clickable
+            onTap: _pickProfilePhoto,
+            child: Container(
+              width: 120,
+              height: 120,
+              decoration: BoxDecoration(
+                color: widget.isDarkTheme ? Colors.blue[300] : Colors.blue[100],
+                shape: BoxShape.circle,  // Ensures round shape
+                image: widget.currentUser.profilePhoto != null
+                    ? DecorationImage(
+                  image: FileImage(File(widget.currentUser.profilePhoto!)),
+                  fit: BoxFit.cover,  // Covers the circle fully
+                )
+                    : null,
+              ),
+              child: widget.currentUser.profilePhoto == null
+                  ? Icon(
+                Icons.person,
+                size: 60,
+                color: widget.isDarkTheme ? Colors.white : Colors.blue,
+              )
+                  : null,  // No child if photo is present
             ),
           ),
           const SizedBox(height: 24),
@@ -1408,149 +1494,205 @@ class _HomeScreenState extends State<HomeScreen> {
     final newPasswordController = TextEditingController();
     final confirmPasswordController = TextEditingController();
 
-    showDialog(
+    showModalBottomSheet(
       context: context,
-      builder: (BuildContext outerContext) {
+      isScrollControlled: true,  // Allows full height if needed
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),  // Rounded top corners
+      ),
+      builder: (BuildContext bottomSheetContext) {
+        bool isOldPasswordVisible = false;
+        bool isNewPasswordVisible = false;
+        bool isConfirmPasswordVisible = false;
+
         return StatefulBuilder(
-          builder: (BuildContext dialogContext, StateSetter setStateDialog) {
-            bool isOldPasswordVisible = false;
-            bool isNewPasswordVisible = false;
-            bool isConfirmPasswordVisible = false;
-            return AlertDialog(
-              title: const Text('Change Password'),
-              content: SingleChildScrollView( // Changed: Added SingleChildScrollView to fix overflow
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      controller: oldPasswordController,
-                      decoration: InputDecoration(
-                        labelText: 'Current Password',
-                        border: const OutlineInputBorder(),
-                        suffixIcon: IconButton( // Added password toggle
-                          icon: Icon(
-                            isOldPasswordVisible ? Icons.visibility : Icons.visibility_off,
-                          ),
-                          onPressed: () {
-                            setStateDialog(() {
-                              isOldPasswordVisible = !isOldPasswordVisible;
-                            });
-                          },
-                        ),
-                      ),
-                      obscureText: !isOldPasswordVisible, // Toggle visibility
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: newPasswordController,
-                      decoration: InputDecoration(
-                        labelText: 'New Password',
-                        border: const OutlineInputBorder(),
-                        suffixIcon: IconButton( // Added password toggle
-                          icon: Icon(
-                            isNewPasswordVisible ? Icons.visibility : Icons.visibility_off,
-                          ),
-                          onPressed: () {
-                            setStateDialog(() {
-                              isNewPasswordVisible = !isNewPasswordVisible;
-                            });
-                          },
-                        ),
-                      ),
-                      obscureText: !isNewPasswordVisible, // Toggle visibility
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: confirmPasswordController,
-                      decoration: InputDecoration(
-                        labelText: 'Confirm New Password',
-                        border: const OutlineInputBorder(),
-                        suffixIcon: IconButton( // Added password toggle
-                          icon: Icon(
-                            isConfirmPasswordVisible ? Icons.visibility : Icons.visibility_off,
-                          ),
-                          onPressed: () {
-                            setStateDialog(() {
-                              isConfirmPasswordVisible = !isConfirmPasswordVisible;
-                            });
-                          },
-                        ),
-                      ),
-                      obscureText: !isConfirmPasswordVisible, // Toggle visibility
-                    ),
-                  ],
-                ),
+          builder: (BuildContext context, StateSetter setStateDialog) {
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).viewInsets.bottom,  // Keyboard adjustment
+                left: 16,
+                right: 16,
+                top: 16,
               ),
-              actions: [
-                TextButton(
-                  onPressed: () {
-                    Navigator.of(outerContext).pop();
-                  },
-                  child: const Text('Cancel'),
-                ),
-                ElevatedButton(
-                  onPressed: () async {
-                    final oldPassword = oldPasswordController.text.trim();
-                    final newPassword = newPasswordController.text.trim();
-                    final confirmPassword = confirmPasswordController.text.trim();
+              child: Column(
+                mainAxisSize: MainAxisSize.min,  // Shrink to fit content
+                children: [
+                  // Title
+                  const Text(
+                    'Change Password',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 16),
+                  // Scrollable content
+                  SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        TextField(
+                          controller: oldPasswordController,
+                          decoration: InputDecoration(
+                            labelText: 'Current Password',
+                            border: const OutlineInputBorder(),
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                isOldPasswordVisible ? Icons.visibility : Icons.visibility_off,
+                              ),
+                              onPressed: () {
+                                setStateDialog(() {
+                                  isOldPasswordVisible = !isOldPasswordVisible;
+                                });
+                              },
+                            ),
+                          ),
+                          obscureText: !isOldPasswordVisible,
+                        ),
+                        const SizedBox(height: 16),
+                        TextField(
+                          controller: newPasswordController,
+                          decoration: InputDecoration(
+                            labelText: 'New Password',
+                            border: const OutlineInputBorder(),
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                isNewPasswordVisible ? Icons.visibility : Icons.visibility_off,
+                              ),
+                              onPressed: () {
+                                setStateDialog(() {
+                                  isNewPasswordVisible = !isNewPasswordVisible;
+                                });
+                              },
+                            ),
+                          ),
+                          obscureText: !isNewPasswordVisible,
+                        ),
+                        const SizedBox(height: 16),
+                        TextField(
+                          controller: confirmPasswordController,
+                          decoration: InputDecoration(
+                            labelText: 'Confirm New Password',
+                            border: const OutlineInputBorder(),
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                isConfirmPasswordVisible ? Icons.visibility : Icons.visibility_off,
+                              ),
+                              onPressed: () {
+                                setStateDialog(() {
+                                  isConfirmPasswordVisible = !isConfirmPasswordVisible;
+                                });
+                              },
+                            ),
+                          ),
+                          obscureText: !isConfirmPasswordVisible,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  // Actions
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(
+                        onPressed: () {
+                          Navigator.of(bottomSheetContext).pop();
+                        },
+                        child: const Text('Cancel'),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton(
+                        onPressed: () async {
+                          final oldPassword = oldPasswordController.text.trim();
+                          final newPassword = newPasswordController.text.trim();
+                          final confirmPassword = confirmPasswordController.text.trim();
 
-                    if (oldPassword.isEmpty || newPassword.isEmpty || confirmPassword.isEmpty) {
-                      ScaffoldMessenger.of(outerContext).showSnackBar(
-                        const SnackBar(content: Text('Please fill all fields')),
-                      );
-                      return;
-                    }
+                          if (oldPassword.isEmpty || newPassword.isEmpty || confirmPassword.isEmpty) {
+                            // Use showDialog for errors
+                            showDialog(
+                              context: bottomSheetContext,
+                              builder: (context) => AlertDialog(
+                                title: const Text('Error'),
+                                content: const Text('Please fill all fields'),
+                                actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
+                              ),
+                            );
+                            return;
+                          }
 
-                    if (newPassword != confirmPassword) {
-                      ScaffoldMessenger.of(outerContext).showSnackBar(
-                        const SnackBar(content: Text('New passwords do not match')),
-                      );
-                      return;
-                    }
+                          if (newPassword != confirmPassword) {
+                            // Use showDialog for errors
+                            showDialog(
+                              context: bottomSheetContext,
+                              builder: (context) => AlertDialog(
+                                title: const Text('Error'),
+                                content: const Text('New passwords do not match'),
+                                actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
+                              ),
+                            );
+                            return;
+                          }
 
-                    if (newPassword.length < 6) {
-                      ScaffoldMessenger.of(outerContext).showSnackBar(
-                        const SnackBar(content: Text('New password must be at least 6 characters')),
-                      );
-                      return;
-                    }
+                          if (newPassword.length < 6) {
+                            // Use showDialog for errors
+                            showDialog(
+                              context: bottomSheetContext,
+                              builder: (context) => AlertDialog(
+                                title: const Text('Error'),
+                                content: const Text('New password must be at least 6 characters'),
+                                actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
+                              ),
+                            );
+                            return;
+                          }
 
-                    try {
-                      // Verify old password
-                      final user = await DatabaseHelper.instance.loginUser(widget.currentUser.email, oldPassword);
-                      if (user == null) {
-                        ScaffoldMessenger.of(outerContext).showSnackBar(
-                          const SnackBar(content: Text('Current password is incorrect')),
-                        );
-                        return;
-                      }
+                          try {
+                            // Verify old password
+                            final user = await DatabaseHelper.instance.loginUser(widget.currentUser.email, oldPassword);
+                            if (user == null) {
+                              // Use showDialog for errors
+                              showDialog(
+                                context: bottomSheetContext,
+                                builder: (context) => AlertDialog(
+                                  title: const Text('Error'),
+                                  content: const Text('Current password is incorrect'),
+                                  actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
+                                ),
+                              );
+                              return;
+                            }
 
-                      // Update password (create a new User object with hashed password)
-                      final updatedUser = User(
-                        id: widget.currentUser.id,
-                        username: widget.currentUser.username,
-                        email: widget.currentUser.email,
-                        password: newPassword,  // Will be hashed in toRegistrationMap
-                      );
+                            // Update password
+                            final hashedNewPassword = DatabaseHelper.instance.hashPassword(newPassword);
+                            await DatabaseHelper.instance.updateUserPassword(widget.currentUser.id, hashedNewPassword);
 
-                      // Since registerUser updates, we can use a custom update method or reuse logic
-                      // For simplicity, update the password directly in DB
-                      final hashedNewPassword = DatabaseHelper.instance.hashPassword(newPassword);
-                      await DatabaseHelper.instance.updateUserPassword(widget.currentUser.id, hashedNewPassword);
-
-                      ScaffoldMessenger.of(outerContext).showSnackBar(
-                        const SnackBar(content: Text('Password changed successfully')),
-                      );
-                      Navigator.of(outerContext).pop();
-                    } catch (e) {
-                      ScaffoldMessenger.of(outerContext).showSnackBar(
-                        SnackBar(content: Text('Error changing password: $e')),
-                      );
-                    }
-                  },
-                  child: const Text('Change'),
-                ),
-              ],
+                            // Close bottom sheet first, then show success dialog
+                            Navigator.of(bottomSheetContext).pop();
+                            showDialog(
+                              context: context,  // Main context
+                              builder: (context) => AlertDialog(
+                                title: const Text('Success'),
+                                content: const Text('Password changed successfully'),
+                                actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
+                              ),
+                            );
+                          } catch (e) {
+                            // Use showDialog for errors
+                            showDialog(
+                              context: bottomSheetContext,
+                              builder: (context) => AlertDialog(
+                                title: const Text('Error'),
+                                content: Text('Error changing password: $e'),
+                                actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
+                              ),
+                            );
+                          }
+                        },
+                        child: const Text('Change'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),  // Bottom padding
+                ],
+              ),
             );
           },
         );

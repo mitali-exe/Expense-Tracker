@@ -50,6 +50,7 @@ class _RegistrationPageState extends State<RegistrationPage> {
         username: username,
         email: email,
         password: password,
+        profilePhoto: null,
       );
 
       final result = await DatabaseHelper.instance.registerUser(user);

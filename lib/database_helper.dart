@@ -10,13 +10,15 @@ class User {
   final int id;
   final String username;
   final String email;
-  final String password; // For registration/login; hashed in DB
+  final String password;
+  final String? profilePhoto;
 
   User({
     required this.id,
     required this.username,
     required this.email,
     required this.password,
+    this.profilePhoto,
   });
 
   // Create User from Map (for login query)
@@ -26,6 +28,7 @@ class User {
       username: map['username'],
       email: map['email'],
       password: map['password'], // Hashed in DB
+      profilePhoto: map['profile_photo'],
     );
   }
 
@@ -35,6 +38,7 @@ class User {
       'username': username,
       'email': email,
       'password': _hashPassword(password), // Hash the password before storing
+      'profile_photo': profilePhoto,
     };
   }
 
@@ -45,6 +49,7 @@ class User {
     return digest.toString();
   }
 }
+
 
 class Transaction {
   final String id;
@@ -168,7 +173,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 3, // Incremented for savings_goals table and is_saving column
+      version: 5, // Incremented for savings_goals table and is_saving column
       onCreate: _createDB,
       onUpgrade: _upgradeDB,
     );
@@ -181,7 +186,8 @@ class DatabaseHelper {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         username TEXT UNIQUE NOT NULL,
         email TEXT UNIQUE NOT NULL,
-        password TEXT NOT NULL
+        password TEXT NOT NULL,
+        profile_photo TEXT
       )
     ''');
 
@@ -274,6 +280,10 @@ class DatabaseHelper {
       ''');
       await db.execute('ALTER TABLE transactions ADD COLUMN is_saving INTEGER DEFAULT 0');
     }
+
+    if (oldVersion < 5) {
+      await db.execute('ALTER TABLE users ADD COLUMN profile_photo TEXT');
+    }
   }
 
   // User methods
@@ -340,6 +350,17 @@ class DatabaseHelper {
       orderBy: 'date DESC',
     );
     return List.generate(maps.length, (i) => Transaction.fromMap(maps[i]));
+  }
+
+  // Add method to update profile photo
+  Future<void> updateUserProfilePhoto(int userId, String? photoPath) async {
+    final db = await database;
+    await db.update(
+      'users',
+      {'profile_photo': photoPath},
+      where: 'id = ?',
+      whereArgs: [userId],
+    );
   }
 
   // Budget methods (updated to include user_id)
