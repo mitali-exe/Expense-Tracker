@@ -59,11 +59,12 @@ class _RegistrationPageState extends State<RegistrationPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Registration successful! Please log in.')),
         );
-        // Navigate to login page
-        Navigator.pushReplacement(
+        Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(builder: (context) => LoginPage(onLoginSuccess: (user) {})),
+              (Route<dynamic> route) => false, // This condition removes all previous routes
         );
+
       }  else {
         _showSnackBar('Username or email already exists');
       }

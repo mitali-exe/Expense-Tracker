@@ -487,6 +487,24 @@ class DatabaseHelper {
     return (result.first['total'] as double?) ?? 0.0;
   }
 
+  // NEW: Get savings associated with a specific goal title
+  Future<double> getTotalSavingsForGoal(int userId, String goalTitle) async {
+    final db = await database;
+
+    // Transactions are tagged with "Savings: [Goal Title]"
+    final transactionTitlePattern = 'Savings: $goalTitle%';
+
+    String whereClause = 'user_id = ? AND is_saving = 1 AND title LIKE ?';
+    List<dynamic> whereArgs = [userId, transactionTitlePattern];
+
+    final result = await db.rawQuery(
+      'SELECT SUM(amount) as total FROM transactions WHERE $whereClause',
+      whereArgs,
+    );
+
+    return (result.first['total'] as double?) ?? 0.0;
+  }
+
   Future<void> deleteAllDataForUser(int userId) async {
     final db = await database;
     await db.delete('transactions', where: 'user_id = ?', whereArgs: [userId]);

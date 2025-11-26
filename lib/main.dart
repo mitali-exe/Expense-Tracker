@@ -12,6 +12,7 @@ import 'package:csv/csv.dart';
 import 'package:file_selector/file_selector.dart';
 import 'dart:io';
 import 'savings_page.dart';
+import 'currency_service.dart';
 import 'package:image_picker/image_picker.dart';
 
 void main() {
@@ -29,12 +30,14 @@ class _MyMoneyAppState extends State<MyMoneyApp> {
   bool _isDarkTheme = false;
   User? _currentUser;
   String _selectedCurrency = 'INR'; // Default currency
+  Map<String, double> _exchangeRates = {};
 
   @override
   void initState() {
     super.initState();
     _loadPersistedUser();
     _loadPersistedCurrency();
+    _fetchExchangeRates();
   }
 
   Future<void> _loadPersistedUser() async {
@@ -75,6 +78,18 @@ class _MyMoneyAppState extends State<MyMoneyApp> {
     });
   }
 
+  // Add method to fetch rates
+  Future<void> _fetchExchangeRates() async {
+    try {
+      final rates = await CurrencyService.getExchangeRates();
+      setState(() {
+        _exchangeRates = rates;
+      });
+    } catch (e) {
+      print('Error fetching rates: $e');  // Handle silently or show snackbar
+    }
+  }
+
   void _setCurrentUser(User? user) {
     print('Setting current user: ${user?.username ?? 'null'}');
     setState(() {
@@ -102,6 +117,7 @@ class _MyMoneyAppState extends State<MyMoneyApp> {
       _selectedCurrency = currency;
     });
     _savePersistedCurrency(currency);
+    _fetchExchangeRates();
   }
 
   void _logoutUser() {
@@ -132,6 +148,7 @@ class _MyMoneyAppState extends State<MyMoneyApp> {
         onUserChanged: _setCurrentUser,
         onCurrencyChanged: _setCurrency,
         onLogout: _logoutUser,
+        exchangeRates: _exchangeRates,
       ),
       debugShowCheckedModeBanner: false,
     );
@@ -147,6 +164,7 @@ class AppWrapper extends StatelessWidget {
   final ValueChanged<User?> onUserChanged;
   final ValueChanged<String> onCurrencyChanged;
   final VoidCallback onLogout;
+  final Map<String, double> exchangeRates;
 
   const AppWrapper({
     super.key,
@@ -157,6 +175,7 @@ class AppWrapper extends StatelessWidget {
     required this.onUserChanged,
     required this.onCurrencyChanged,
     required this.onLogout,
+    required this.exchangeRates,
   });
 
   @override
@@ -178,6 +197,7 @@ class AppWrapper extends StatelessWidget {
         onCurrencyChanged: onCurrencyChanged,
         onLogout: onLogout,
         onUserChanged: onUserChanged,
+        exchangeRates: exchangeRates,
       );
     }
   }
@@ -192,6 +212,7 @@ class HomeScreen extends StatefulWidget {
   final ValueChanged<String> onCurrencyChanged;
   final VoidCallback onLogout;
   final ValueChanged<User?> onUserChanged;
+  final Map<String, double> exchangeRates;
 
   const HomeScreen({
     super.key,
@@ -202,6 +223,7 @@ class HomeScreen extends StatefulWidget {
     required this.onCurrencyChanged,
     required this.onLogout,
     required this.onUserChanged,
+    required this.exchangeRates,
   });
 
   @override
@@ -230,6 +252,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // Filtered transactions for date search
   List<Transaction> _filteredTransactions = [];
+  bool _isDateFilterActive = false;
 
   @override
   void initState() {
@@ -255,6 +278,7 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
   }
+
 
   // In _HomeScreenState in main.dart
 
@@ -332,24 +356,44 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  double _convertAmount(double amount) {
+    if (widget.exchangeRates.isEmpty) return amount;  // Fallback if no rates
+    try {
+      return CurrencyService.convertAmount(amount, 'INR', widget.selectedCurrency, widget.exchangeRates);
+    } catch (e) {
+      print('Conversion error: $e');
+      return amount;
+    }
+  }
+
   double get _totalIncome {
     return _transactions
-        .where((t) => t.type == TransactionType.income)
-        .fold(0.0, (sum, item) => sum + item.amount);
+        .where((t) => t.type == TransactionType.income && !t.isSaving)
+        .fold(0.0, (sum, item) => sum + _convertAmount(item.amount));
   }
+
 
   double get _totalExpense {
     return _transactions
-        .where((t) => t.type == TransactionType.expense)
-        .fold(0.0, (sum, item) => sum + item.amount);
+        .where((t) => t.type == TransactionType.expense && !t.isSaving)
+        .fold(0.0, (sum, item) => sum + _convertAmount(item.amount));
   }
 
+
   List<Transaction> get _filteredTransactionsByQuery {
-    if (_searchQuery.isEmpty) {
-      return _filteredTransactions.isNotEmpty ? _filteredTransactions : _transactions;
-    }
     final query = _searchQuery.toLowerCase();
-    final baseList = _filteredTransactions.isNotEmpty ? _filteredTransactions : _transactions;
+
+    final List<Transaction> baseList;
+    if (_isDateFilterActive) {
+      baseList = _filteredTransactions; // Use the (possibly empty) date-filtered list
+    } else {
+      baseList = _transactions; // Use the full list
+    }
+
+
+    if (_searchQuery.isEmpty) {
+      return baseList;
+    }
     return baseList.where((t) {
       final dateStr = DateFormat('yyyy-MM-dd').format(t.date).toLowerCase();
       final dateStrAlt = DateFormat('MMM dd').format(t.date).toLowerCase();
@@ -428,11 +472,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (pickedDate != null) {
       setState(() {
+        _searchQuery = '';
         _filteredTransactions = _transactions.where((t) {
           return t.date.year == pickedDate.year &&
               t.date.month == pickedDate.month &&
               t.date.day == pickedDate.day;
         }).toList();
+        _isDateFilterActive = true;
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Showing transactions for ${DateFormat('yyyy-MM-dd').format(pickedDate)}')),
@@ -920,12 +966,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   },
                 ),
               ),
-              if (_filteredTransactions.isNotEmpty)
+              if (_filteredTransactions.isNotEmpty || _searchQuery.isNotEmpty)
                 IconButton(
                   icon: const Icon(Icons.clear),
                   onPressed: () {
                     setState(() {
                       _filteredTransactions.clear();
+                      _searchQuery = '';
+                      _isDateFilterActive = false;
                     });
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('Filter cleared')),
@@ -990,7 +1038,7 @@ class _HomeScreenState extends State<HomeScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              '${_currencySymbol}${transaction.amount.toStringAsFixed(2)}',
+              '${_currencySymbol}${_convertAmount(transaction.amount).toStringAsFixed(2)}',
               style: TextStyle(
                 fontWeight: FontWeight.bold,
                 color: transaction.type == TransactionType.income
@@ -1311,7 +1359,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              '${_currencySymbol}${spent.toStringAsFixed(2)} spent of ${_currencySymbol}${budget.allocated.toStringAsFixed(2)} (${(progress * 100).toStringAsFixed(0)}%)',
+              '${_currencySymbol}${_convertAmount(spent).toStringAsFixed(2)} spent of ${_currencySymbol}${_convertAmount(budget.allocated).toStringAsFixed(2)} (${(progress * 100).toStringAsFixed(0)}%)',
               style: const TextStyle(
                 fontSize: 12,
                 color: Colors.grey,
@@ -1436,6 +1484,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   isDarkTheme: widget.isDarkTheme,
                   userId: widget.currentUser.id,
                   selectedCurrency: widget.selectedCurrency,
+                  exchangeRates: widget.exchangeRates,
+
                 ),
               ),
             );
@@ -2041,6 +2091,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     );
                     return;
                   }
+
 
                   final newTransaction = Transaction(
                     id: DateTime.now().millisecondsSinceEpoch.toString(),

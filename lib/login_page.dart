@@ -42,15 +42,16 @@ class _LoginPageState extends State<LoginPage> {
         print('Login successful for ${user.username}');
         _showSnackBar('Login successful! Welcome back, ${user.username}');
         widget.onLoginSuccess(user);
+        if (mounted) {
+          // Use a small delay for SnackBar visibility
+          await Future.delayed(const Duration(milliseconds: 100));
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(builder: (context) => const SizedBox()),
+                (Route<dynamic> route) => false, // Removes all previous routes
+          );
+        }
 
-        Future.delayed(const Duration(milliseconds: 500), () {
-          if (mounted) {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (context) => const SizedBox()),
-            );
-          }
-        });
       }
       else {
         print('Login failed: Invalid credentials');
