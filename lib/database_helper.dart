@@ -512,6 +512,15 @@ class DatabaseHelper {
     await db.delete('savings_goals', where: 'user_id = ?', whereArgs: [userId]);
   }
 
+  Future<void> deleteUser(int userId) async {
+    final db = await database;
+    await db.delete(
+        'users',
+        where: 'id = ?',
+        whereArgs: [userId]
+    );
+  }
+
   // In DatabaseHelper class
   Future<void> updateUserPassword(int userId, String hashedPassword) async {
     final db = await database;

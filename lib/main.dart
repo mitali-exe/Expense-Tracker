@@ -645,6 +645,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     isDarkTheme: widget.isDarkTheme,
                     userId: widget.currentUser.id,
                     onDataReset: _loadDataFromDatabase,
+                    onAccountDeleted: _onAccountDeleted,
                   ),
                 ),
               );
@@ -1430,6 +1431,27 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  void _onAccountDeleted() {
+    // Perform any necessary local cleanup before logging out
+    setState(() {
+      _transactions.clear();
+      _budgets.clear();
+      _searchQuery = '';
+      _selectedIndex = 0;
+      _filteredTransactions.clear();
+    });
+    // Call the global logout function to clear SharedPreferences and navigate
+    widget.onLogout();
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Account successfully deleted.'),
+        duration: Duration(seconds: 3),
+      ),
+    );
+  }
+
+
   Widget _buildProfile() {
     return Center(
       child: Column(
@@ -1500,6 +1522,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   isDarkTheme: widget.isDarkTheme,
                   userId: widget.currentUser.id,
                   onDataReset: _loadDataFromDatabase,
+                  onAccountDeleted: _onAccountDeleted,
                 ),
               ),
             );

@@ -11,6 +11,7 @@ class SettingsPage extends StatefulWidget {
   final bool isDarkTheme;
   final int userId;
   final VoidCallback onDataReset;
+  final VoidCallback onAccountDeleted;
 
   const SettingsPage({
     super.key,
@@ -19,6 +20,7 @@ class SettingsPage extends StatefulWidget {
     required this.isDarkTheme,
     required this.userId,
     required this.onDataReset,
+    required this.onAccountDeleted,
   });
 
   @override
@@ -59,6 +61,44 @@ class _SettingsPageState extends State<SettingsPage> {
       SnackBar(content: Text('Data exported to $filePath')),
     );
   }
+
+  void _deleteAccount() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Account'),
+        content: const Text('This will permanently delete your account and ALL associated data (transactions, budgets, goals). This action CANNOT be undone. Are you absolutely sure?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('DELETE ACCOUNT'),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        await DatabaseHelper.instance.deleteAllDataForUser(widget.userId);
+        await DatabaseHelper.instance.deleteUser(widget.userId);
+        widget.onAccountDeleted();
+        if (mounted) {
+          Navigator.of(context).pop();
+        }
+      } catch (e) {
+        // Handle database errors
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error deleting account: $e')),
+        );
+      }
+    }
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -156,6 +196,24 @@ class _SettingsPageState extends State<SettingsPage> {
               }
             },
           ),
+
+          const SizedBox(height: 20),
+          const Text(
+            'Account Management', // NEW Section Header
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          ListTile(
+            title: const Text('Delete Account'),
+            subtitle: const Text('Permanently delete your account and all data'),
+            trailing: const Icon(Icons.person_remove, color: Colors.red),
+            onTap: _deleteAccount, // NEW: Call the deletion function
+          ),
+
         ],
       ),
     );

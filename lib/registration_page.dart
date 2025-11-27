@@ -1,4 +1,3 @@
-import 'package:expense/main.dart';
 import 'package:flutter/material.dart';
 import 'database_helper.dart';
 import 'login_page.dart';
@@ -19,6 +18,13 @@ class _RegistrationPageState extends State<RegistrationPage> {
   bool _isPasswordVisible = false; // New: For password field
   bool _isConfirmPasswordVisible = false; // New: For confirm password field
 
+  bool _isValidEmail(String email) {
+    // Basic regex pattern for email format check
+    const emailRegex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$';
+    return RegExp(emailRegex).hasMatch(email);
+  }
+
+
   Future<void> _register() async {
     final username = _usernameController.text.trim();
     final email = _emailController.text.trim();
@@ -27,6 +33,11 @@ class _RegistrationPageState extends State<RegistrationPage> {
 
     if (username.isEmpty || email.isEmpty || password.isEmpty || confirmPassword.isEmpty) {
       _showSnackBar('Please fill all fields');
+      return;
+    }
+
+    if (!_isValidEmail(email)) {
+      _showSnackBar('Please enter a valid email address');
       return;
     }
 
@@ -59,10 +70,9 @@ class _RegistrationPageState extends State<RegistrationPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Registration successful! Please log in.')),
         );
-        Navigator.pushAndRemoveUntil(
+        Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (context) => LoginPage(onLoginSuccess: (user) {})),
-              (Route<dynamic> route) => false, // This condition removes all previous routes
         );
 
       }  else {

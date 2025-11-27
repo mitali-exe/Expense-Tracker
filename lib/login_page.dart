@@ -42,14 +42,11 @@ class _LoginPageState extends State<LoginPage> {
         print('Login successful for ${user.username}');
         _showSnackBar('Login successful! Welcome back, ${user.username}');
         widget.onLoginSuccess(user);
-        if (mounted) {
-          // Use a small delay for SnackBar visibility
-          await Future.delayed(const Duration(milliseconds: 100));
-          Navigator.pushAndRemoveUntil(
-            context,
-            MaterialPageRoute(builder: (context) => const SizedBox()),
-                (Route<dynamic> route) => false, // Removes all previous routes
-          );
+        if (Navigator.canPop(context)) {
+          Navigator.pop(context);        // used when coming from Registration
+        } else {
+          // if login is the first screen → we rebuild MaterialApp by pushing a dummy rebuild
+          setState(() {});
         }
 
       }
