@@ -7,7 +7,6 @@ import 'registration_page.dart';
 import 'settings_page.dart';
 import 'about_page.dart';
 import 'help_support_page.dart';
-import 'package:fl_chart/fl_chart.dart';
 import 'package:csv/csv.dart';
 import 'package:file_selector/file_selector.dart';
 import 'dart:io';

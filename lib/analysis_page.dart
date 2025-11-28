@@ -4,12 +4,15 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
 import 'database_helper.dart';
 import 'currency_service.dart';
+import 'ai_service.dart';
+import 'package:shimmer/shimmer.dart';
 
 class AnalysisPage extends StatefulWidget {
   final bool isDarkTheme;
   final int userId;
   final String selectedCurrency;
   final Map<String, double> exchangeRates;
+
   const AnalysisPage({
     super.key,
     required this.isDarkTheme,
@@ -27,6 +30,10 @@ class _AnalysisPageState extends State<AnalysisPage> {
   List<Insight> _insights = [];
   Map<String, double> _categoryTotals = {};
   List<MonthlyData> _monthlyData = [];
+
+  final AIService _aiService = AIService();
+
+
   // Helper to convert amounts (assuming DB stores in base INR, convert for display)
   double _convertAmount(double amount) {
     if (widget.exchangeRates.isEmpty) return amount;
@@ -51,16 +58,20 @@ class _AnalysisPageState extends State<AnalysisPage> {
     _loadData();
   }
   Future<void> _loadData() async {
+    // 1. Fetch Local Data First
     final transactions = await DatabaseHelper.instance.getAllTransactions(widget.userId);
     final budgets = await DatabaseHelper.instance.getAllBudgets(widget.userId);
-    // Filter expenses only for analysis
+
     final expenses = transactions.where((t) => t.type == TransactionType.expense).toList();
-    // Calculate category totals
+    final incomeList = transactions.where((t) => t.type == TransactionType.income).toList();
+
+    // Calculate Totals
     final categoryTotals = <String, double>{};
     for (var expense in expenses) {
       categoryTotals[expense.category] = (categoryTotals[expense.category] ?? 0) + expense.amount;
     }
-    // Calculate monthly data for trend (last 6 months)
+
+    // Calculate Monthly Data
     final now = DateTime.now();
     final monthlyData = <MonthlyData>[];
     for (int i = 5; i >= 0; i--) {
@@ -78,118 +89,80 @@ class _AnalysisPageState extends State<AnalysisPage> {
         total: total,
       ));
     }
-    // Generate AI-like insights (rule-based for now; can integrate real AI API later)
-    // Fixed: Pass all required data to avoid using uninitialized state variables
-    final insights = _generateInsights(transactions, expenses, budgets, categoryTotals, monthlyData);
+
+    // Update UI with chart data immediately so the screen isn't blank
     if (mounted) {
       setState(() {
         _transactions = transactions;
-        _budgets = budgets;
         _categoryTotals = categoryTotals;
         _monthlyData = monthlyData;
-        _insights = insights;
+        // Don't set isLoading to false yet, we wait for AI
+      });
+    }
+
+    // 2. Prepare Data for AI
+    final totalSpent = expenses.fold(0.0, (sum, e) => sum + e.amount);
+    final totalIncome = incomeList.fold(0.0, (sum, i) => sum + i.amount);
+
+    // 3. Call AI Service (Real Intelligence)
+    List<Insight> aiInsights;
+
+    // Check if we have internet/data to send
+    if (expenses.isEmpty) {
+      aiInsights = [Insight(type: InsightType.info, title: "No Data", description: "Add expenses to get AI insights.", icon: Icons.hourglass_empty)];
+    } else {
+      aiInsights = await _aiService.getFinancialAdvice(
+        totalIncome: _convertAmount(totalIncome),
+        totalExpense: _convertAmount(totalSpent),
+        categoryTotals: categoryTotals.map((k, v) => MapEntry(k, _convertAmount(v))),
+        monthlyTrend: monthlyData.map((m) => MonthlyData(month: m.month, total: _convertAmount(m.total))).toList(),
+        currencySymbol: _getCurrencySymbol(),
+      );
+    }
+
+    if (mounted) {
+      setState(() {
+        _insights = aiInsights;
         _isLoading = false;
       });
     }
   }
-  List<Insight> _generateInsights(
-      List<Transaction> allTransactions,
-      List<Transaction> expenses,
-      List<Budget> budgets,
-      Map<String, double> categoryTotals,
-      List<MonthlyData> monthlyData,
-      ) {
-    final insights = <Insight>[];
-    final totalSpent = expenses.fold(0.0, (sum, e) => sum + e.amount);
-    final totalIncome = allTransactions.where((t) => t.type == TransactionType.income).fold(0.0, (sum, i) => sum + i.amount);
-    final netSavings = totalIncome - totalSpent;
-    // Insight 1: Overall balance
-    insights.add(Insight(
-      type: InsightType.info,
-      title: 'Net Savings',
-      description: 'Your net savings this period is ${_getCurrencySymbol()}${_convertAmount(netSavings).toStringAsFixed(2)}. Keep up the good work!',
-      icon: Icons.trending_up,
-    ));
-    // Insight 2: Top spending category
-    if (categoryTotals.isNotEmpty) {
-      final topCategory = categoryTotals.entries.reduce((a, b) => a.value > b.value ? a : b);
-      insights.add(Insight(
-        type: InsightType.warning,
-        title: 'Top Spending Category',
-        description: 'You spent the most (${_getCurrencySymbol()}${_convertAmount(topCategory.value).toStringAsFixed(2)}) on ${topCategory.key}. Consider reviewing this category.',
-        icon: Icons.category,
-      ));
-    }
-    // Insight 3: Budget overspend
-    for (var budget in budgets) {
-      final spent = categoryTotals[budget.category] ?? 0;
-      if (spent > budget.allocated) {
-        insights.add(Insight(
-          type: InsightType.error,
-          title: 'Budget Overspend',
-          description: 'Overspent on ${budget.category} by ${_getCurrencySymbol()}${_convertAmount(spent - budget.allocated).toStringAsFixed(2)}. Adjust your budget or cut back.',
-          icon: Icons.warning,
-        ));
-      }
-    }
-    // Insight 4: Spending trend
-    if (monthlyData.length > 1) {
-      final lastMonth = monthlyData.last.total;
-      final prevMonth = monthlyData[monthlyData.length - 2].total;
-      if (lastMonth > prevMonth) {
-        insights.add(Insight(
-          type: InsightType.error,
-          title: 'Increasing Spend',
-          description: 'Spending increased by ${_getCurrencySymbol()}${_convertAmount(lastMonth - prevMonth).toStringAsFixed(2)} from last month. Track expenses closely.',
-          icon: Icons.trending_up,
-        ));
-      } else {
-        insights.add(Insight(
-          type: InsightType.info,
-          title: 'Decreasing Spend',
-          description: 'Spending decreased by ${_getCurrencySymbol()}${_convertAmount(prevMonth - lastMonth).toStringAsFixed(2)} from last month. Great progress!',
-          icon: Icons.trending_down,
-        ));
-      }
-    }
-    // Advice: General tip
-    insights.add(Insight(
-      type: InsightType.advice,
-      title: 'Pro Tip',
-      description: 'Review your subscriptions in the "Bills" category to save more. Aim to save 20% of your income automatically.',
-      icon: Icons.lightbulb,
-    ));
-    return insights;
-  }
+
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return Scaffold(
-        appBar: AppBar(
-          title: const Text('Analysis'),
-          backgroundColor: widget.isDarkTheme ? Colors.grey[900] : Colors.blue[700],
-          foregroundColor: Colors.white,
-        ),
-        backgroundColor: widget.isDarkTheme ? Colors.grey[850] : Colors.white,
-        body: const Center(child: CircularProgressIndicator()),
-      );
-    }
     return Scaffold(
+      appBar: AppBar(
+        title: const Text('Analysis'),
+        backgroundColor: widget.isDarkTheme ? Colors.grey[900] : Colors.blue[700],
+        foregroundColor: Colors.white,
+      ),
       backgroundColor: widget.isDarkTheme ? Colors.grey[850] : Colors.white,
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // AI Insights & Advice Section
+            // --- AI INSIGHTS SECTION ---
             const Text(
               'AI Insights & Advice',
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 16),
-            ..._insights.map((insight) => _buildInsightCard(insight)),
+
+            // CONDITIONAL RENDERING
+            if (_isLoading)
+            // Render 3 skeletons directly here
+              Column(
+                children: List.generate(3, (index) => _InsightSkeleton(isDarkTheme: widget.isDarkTheme)),
+              )
+            else if (_insights.isEmpty)
+              const Text("No specific insights available right now.")
+            else
+              ..._insights.map((insight) => _buildInsightCard(insight)),
+
             const SizedBox(height: 24),
-            // Charts Section
+
+            // --- VISUAL ANALYTICS SECTION ---
             const Text(
               'Visual Analytics',
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
@@ -197,13 +170,13 @@ class _AnalysisPageState extends State<AnalysisPage> {
             const SizedBox(height: 16),
             _buildCategoryPieChart(),
             const SizedBox(height: 16),
-            // Fixed: Removed fixed height to prevent overflow; let it expand naturally
             _buildMonthlyTrendChart(),
           ],
         ),
       ),
     );
   }
+
   Widget _buildInsightCard(Insight insight) {
     Color? iconColor;
     switch (insight.type) {
@@ -351,6 +324,75 @@ class _AnalysisPageState extends State<AnalysisPage> {
     // Simple hash-based color generator
     final colors = [Colors.red, Colors.green, Colors.blue, Colors.orange, Colors.purple, Colors.teal, Colors.pink];
     return colors[seed % colors.length];
+  }
+}
+
+// --- Place this at the bottom of analysis_page.dart ---
+
+class _InsightSkeleton extends StatelessWidget {
+  final bool isDarkTheme;
+  const _InsightSkeleton({required this.isDarkTheme});
+
+  @override
+  Widget build(BuildContext context) {
+    // Define colors: Darker greys for Dark Mode, Lighter for Light Mode
+    final baseColor = isDarkTheme ? Colors.grey[800]! : Colors.grey[300]!;
+    final highlightColor = isDarkTheme ? Colors.grey[700]! : Colors.grey[100]!;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      // Make card transparent so shimmer effect stands out
+      color: Colors.transparent,
+      elevation: 0,
+      child: Shimmer.fromColors(
+        baseColor: baseColor,
+        highlightColor: highlightColor,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              // 1. Fake Icon Circle
+              Container(
+                width: 32,
+                height: 32,
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 16),
+              // 2. Fake Text Lines
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Title Bar
+                    Container(
+                      width: double.infinity,
+                      height: 16,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    // Description Bar (shorter)
+                    Container(
+                      width: 200,
+                      height: 14,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 // Supporting models

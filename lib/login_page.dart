@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'database_helper.dart';
 import 'registration_page.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 
 class LoginPage extends StatefulWidget {
   final ValueChanged<User> onLoginSuccess;
@@ -42,11 +44,10 @@ class _LoginPageState extends State<LoginPage> {
         print('Login successful for ${user.username}');
         _showSnackBar('Login successful! Welcome back, ${user.username}');
         widget.onLoginSuccess(user);
-        if (Navigator.canPop(context)) {
-          Navigator.pop(context);        // used when coming from Registration
-        } else {
-          // if login is the first screen → we rebuild MaterialApp by pushing a dummy rebuild
-          setState(() {});
+
+        await Future.delayed(const Duration(milliseconds: 100));
+        if (mounted) {
+          Navigator.of(context).pop();
         }
 
       }
