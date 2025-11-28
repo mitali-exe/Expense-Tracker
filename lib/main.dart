@@ -13,6 +13,7 @@ import 'package:file_selector/file_selector.dart';
 import 'dart:io';
 import 'savings_page.dart';
 import 'currency_service.dart';
+import 'analysis_page.dart';
 import 'package:image_picker/image_picker.dart';
 
 void main() {
@@ -253,6 +254,7 @@ class _HomeScreenState extends State<HomeScreen> {
   // Filtered transactions for date search
   List<Transaction> _filteredTransactions = [];
   bool _isDateFilterActive = false;
+  bool _isDataLoading = true;
 
   @override
   void initState() {
@@ -263,6 +265,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
 
   Future<void> _loadDataFromDatabase() async {
+    if (mounted) {
+      setState(() {
+        _isDataLoading = true;
+      });
+    }
+
     try {
       final transactions = await DatabaseHelper.instance.getAllTransactions(widget.currentUser.id);
       final budgets = await DatabaseHelper.instance.getAllBudgets(widget.currentUser.id);
@@ -277,10 +285,16 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       }
     }
+    finally {
+      // Set loading to false when done, regardless of success or error
+      if (mounted) {
+        setState(() {
+          _isDataLoading = false;
+        });
+      }
+    }
   }
 
-
-  // In _HomeScreenState in main.dart
 
   Future<void> _pickProfilePhoto() async {
     final picker = ImagePicker();
@@ -520,14 +534,21 @@ class _HomeScreenState extends State<HomeScreen> {
         ]
             : [],
       ),
-      body: _selectedIndex == 0
+      body: _isDataLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _selectedIndex == 0
           ? _buildDashboard()
           : _selectedIndex == 1
           ? _buildTransactions()
           : _selectedIndex == 2
           ? _buildBudgets()
           : _selectedIndex == 3
-          ? _buildAnalysis()
+          ? AnalysisPage(
+              isDarkTheme: widget.isDarkTheme,
+              userId: widget.currentUser.id,
+              selectedCurrency: widget.selectedCurrency,
+              exchangeRates: widget.exchangeRates,
+            )
           : _buildProfile(),
       floatingActionButton: FloatingActionButton(
         onPressed: () {
@@ -1770,203 +1791,6 @@ class _HomeScreenState extends State<HomeScreen> {
           },
         );
       },
-    );
-  }
-
-
-  Widget _buildAnalysis() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Spending by Category',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 16),
-          SizedBox(height: 200, child: _buildCategoryPieChart()),
-          const SizedBox(height: 32),
-          const Text(
-            'Income vs Expense (Last 30 Days)',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 16),
-          SizedBox(height: 200, child: _buildIncomeExpenseLineChart()),
-          const SizedBox(height: 32),
-          const Text(
-            'Monthly Summary',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 16),
-          SizedBox(height: 200, child: _buildMonthlyBarChart()),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCategoryPieChart() {
-    final expenseTransactions = _transactions.where((t) => t.type == TransactionType.expense).toList();
-    final categoryTotals = <String, double>{};
-    for (var t in expenseTransactions) {
-      categoryTotals[t.category] = (categoryTotals[t.category] ?? 0) + t.amount;
-    }
-
-    if (categoryTotals.isEmpty) {
-      return const Center(child: Text('No expense data available.'));
-    }
-
-    final sections = categoryTotals.entries.map((entry) {
-      final color = Colors.primaries[categoryTotals.keys.toList().indexOf(entry.key) % Colors.primaries.length];
-      return PieChartSectionData(
-        value: entry.value,
-        title: '${entry.key}\n${_currencySymbol}${entry.value.toStringAsFixed(0)}',
-        color: color,
-        radius: 50,
-        titleStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
-      );
-    }).toList();
-
-    return PieChart(
-      PieChartData(
-        sections: sections,
-        centerSpaceRadius: 40,
-        sectionsSpace: 2,
-      ),
-    );
-  }
-
-  Widget _buildIncomeExpenseLineChart() {
-    final now = DateTime.now();
-    final thirtyDaysAgo = now.subtract(const Duration(days: 30));
-    final recentTransactions = _transactions.where((t) => t.date.isAfter(thirtyDaysAgo)).toList();
-
-    final dailyData = <DateTime, Map<String, double>>{};
-    for (var t in recentTransactions) {
-      final day = DateTime(t.date.year, t.date.month, t.date.day);
-      dailyData[day] ??= {'income': 0, 'expense': 0};
-      if (t.type == TransactionType.income) {
-        dailyData[day]!['income'] = (dailyData[day]!['income'] ?? 0) + t.amount;
-      } else {
-        dailyData[day]!['expense'] = (dailyData[day]!['expense'] ?? 0) + t.amount;
-      }
-    }
-
-    final spotsIncome = <FlSpot>[];
-    final spotsExpense = <FlSpot>[];
-    int dayIndex = 0;
-    for (var day in dailyData.keys.toList()..sort()) {
-      spotsIncome.add(FlSpot(dayIndex.toDouble(), dailyData[day]!['income'] ?? 0));
-      spotsExpense.add(FlSpot(dayIndex.toDouble(), dailyData[day]!['expense'] ?? 0));
-      dayIndex++;
-    }
-
-    return LineChart(
-      LineChartData(
-        lineBarsData: [
-          LineChartBarData(
-            spots: spotsIncome,
-            isCurved: true,
-            color: Colors.green,
-            barWidth: 3,
-            belowBarData: BarAreaData(show: false),
-          ),
-          LineChartBarData(
-            spots: spotsExpense,
-            isCurved: true,
-            color: Colors.red,
-            barWidth: 3,
-            belowBarData: BarAreaData(show: false),
-          ),
-        ],
-        titlesData: FlTitlesData(
-          bottomTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              getTitlesWidget: (value, meta) {
-                final index = value.toInt();
-                if (index < dailyData.keys.length) {
-                  final date = dailyData.keys.elementAt(index);
-                  return Text(DateFormat('dd').format(date));
-                }
-                return const Text('');
-              },
-            ),
-          ),
-          leftTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              getTitlesWidget: (value, meta) => Text('${_currencySymbol}${value.toInt()}'),
-            ),
-          ),
-        ),
-        borderData: FlBorderData(show: true),
-        gridData: FlGridData(show: true),
-      ),
-    );
-  }
-
-  Widget _buildMonthlyBarChart() {
-    final monthlyData = <String, Map<String, double>>{};
-    for (var t in _transactions) {
-      final monthKey = DateFormat('MMM yyyy').format(t.date);
-      monthlyData[monthKey] ??= {'income': 0, 'expense': 0};
-      if (t.type == TransactionType.income) {
-        monthlyData[monthKey]!['income'] = (monthlyData[monthKey]!['income'] ?? 0) + t.amount;
-      } else {
-        monthlyData[monthKey]!['expense'] = (monthlyData[monthKey]!['expense'] ?? 0) + t.amount;
-      }
-    }
-
-    final barGroups = <BarChartGroupData>[];
-    int monthIndex = 0;
-    for (var month in monthlyData.keys) {
-      barGroups.add(
-        BarChartGroupData(
-          x: monthIndex,
-          barRods: [
-            BarChartRodData(
-              toY: monthlyData[month]!['income'] ?? 0,
-              color: Colors.green,
-              width: 15,
-            ),
-            BarChartRodData(
-              toY: monthlyData[month]!['expense'] ?? 0,
-              color: Colors.red,
-              width: 15,
-            ),
-          ],
-        ),
-      );
-      monthIndex++;
-    }
-
-    return BarChart(
-      BarChartData(
-        barGroups: barGroups,
-        titlesData: FlTitlesData(
-          bottomTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              getTitlesWidget: (value, meta) {
-                final index = value.toInt();
-                if (index < monthlyData.keys.length) {
-                  return Text(monthlyData.keys.elementAt(index).split(' ')[0]);
-                }
-                return const Text('');
-              },
-            ),
-          ),
-          leftTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              getTitlesWidget: (value, meta) => Text('${_currencySymbol}${value.toInt()}'),
-            ),
-          ),
-        ),
-        borderData: FlBorderData(show: true),
-        gridData: FlGridData(show: true),
-      ),
     );
   }
 
