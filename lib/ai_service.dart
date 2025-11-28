@@ -5,7 +5,7 @@ import 'package:google_generative_ai/google_generative_ai.dart';
 import 'analysis_page.dart';
 
 class AIService {
-  static const String _apiKey = 'AIzaSyAKlRAG_Y1VUNQrPRJ6gJmQAaECX3dQi3I';
+  static const String _apiKey = '[YOUR-API-KEY]';
 
   Future<List<Insight>> getFinancialAdvice({
     required double totalIncome,
