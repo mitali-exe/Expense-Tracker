@@ -233,7 +233,6 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
 
-  // Local lists (loaded from DB for current user)
   List<Transaction> _transactions = [];
   List<Budget> _budgets = [];
 
@@ -260,7 +259,6 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _loadDataFromDatabase();
   }
-
 
 
   Future<void> _loadDataFromDatabase() async {

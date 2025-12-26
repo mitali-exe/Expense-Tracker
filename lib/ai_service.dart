@@ -5,7 +5,7 @@ import 'package:google_generative_ai/google_generative_ai.dart';
 import 'analysis_page.dart';
 
 class AIService {
-  static const String _apiKey = 'AIzaSyAKlRAG_Y1VUNQrPRJ6gJmQAaECX3dQi3I';
+  static const String _apiKey = 'YOUR_API_KEY';
 
   Future<List<Insight>> getFinancialAdvice({
     required double totalIncome,
@@ -52,8 +52,21 @@ class AIService {
 
       if (response.text == null) return [];
 
-      // Clean response just in case (Gemini 2.5 is cleaner, but safety first)
-      String cleanJson = response.text!.replaceAll('```json', '').replaceAll('```', '').trim();
+      String cleanJson = response.text!;
+
+      // --- NEW ROBUST CLEANING LOGIC ---
+      // This finds the actual JSON array [...] and ignores any extra text before or after it.
+      final startIndex = cleanJson.indexOf('[');
+      final endIndex = cleanJson.lastIndexOf(']');
+
+      if (startIndex != -1 && endIndex != -1) {
+        cleanJson = cleanJson.substring(startIndex, endIndex + 1);
+      } else {
+        // If AI didn't return an array, return empty list to prevent crash
+        debugPrint("AI did not return a JSON array: $cleanJson");
+        return [];
+      }
+      // ---------------------------------
 
       final List<dynamic> jsonList = jsonDecode(cleanJson);
 
@@ -68,16 +81,17 @@ class AIService {
 
     } catch (e) {
       debugPrint("AI Error: $e");
-      // Fallback if even 2.5 fails (e.g. network issues)
+      // Print the raw text to console so you can see what went wrong next time
       return [
         Insight(
             type: InsightType.error,
-            title: "Connection Error",
-            description: "Could not reach Gemini AI. Please check your internet.",
-            icon: Icons.wifi_off
+            title: "Analysis Failed",
+            description: "Technical error parsing AI response.",
+            icon: Icons.error_outline
         )
       ];
     }
+
   }
 
   InsightType _parseType(String? type) {

@@ -263,33 +263,99 @@ class _AnalysisPageState extends State<AnalysisPage> {
       return const Card(child: Center(child: Text('No trend data yet.')));
     }
 
+    // 1. Calculate dynamic Max Y to give the chart "headroom"
+    // We find the highest spending month and add 20% extra space at the top
+    double maxSpend = 0;
+    for (var m in _monthlyData) {
+      if (m.total > maxSpend) maxSpend = m.total;
+    }
+    final double maxY = maxSpend * 1.2; // 20% buffer
+
     return Card(
+      elevation: 4,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Monthly Spending Trend (Last 6 Months)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 16),
+            const Text(
+              'Spending Trend',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Last 6 Months',
+              style: TextStyle(color: Colors.grey[600], fontSize: 12),
+            ),
+            const SizedBox(height: 24),
             SizedBox(
-              height: 120, // Reduced height to prevent overflow
+              height: 220, // Increased height for better visibility
               child: LineChart(
                 LineChartData(
-                  gridData: const FlGridData(show: true),
+                  // 2. Fix the Scale
+                  minY: 0,
+                  maxY: maxY == 0 ? 100 : maxY, // Prevent crash if all are 0
+
+                  gridData: FlGridData(
+                    show: true,
+                    drawVerticalLine: false, // Cleaner look
+                    horizontalInterval: maxY / 5, // roughly 5 grid lines
+                    getDrawingHorizontalLine: (value) {
+                      return FlLine(
+                        color: Colors.grey[300],
+                        strokeWidth: 1,
+                        dashArray: [5, 5], // Dashed grid lines
+                      );
+                    },
+                  ),
+
                   titlesData: FlTitlesData(
+                    show: true,
+                    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+
+                    // Y-Axis Labels (Left)
+                    leftTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        reservedSize: 40, // Space for "10k" etc
+                        getTitlesWidget: (value, meta) {
+                          if (value == 0) return const SizedBox.shrink(); // Hide 0
+                          // Simple formatting: 1000 -> 1k
+                          if (value >= 1000) {
+                            return Text('${(value / 1000).toStringAsFixed(1)}k',
+                                style: const TextStyle(fontSize: 10, color: Colors.grey));
+                          }
+                          return Text(value.toInt().toString(),
+                              style: const TextStyle(fontSize: 10, color: Colors.grey));
+                        },
+                      ),
+                    ),
+
+                    // X-Axis Labels (Bottom)
                     bottomTitles: AxisTitles(
                       sideTitles: SideTitles(
                         showTitles: true,
-                        interval: 1, // Force show all intervals
-                        reservedSize: 30, // Reserve space for labels
+                        reservedSize: 30,
+                        interval: 1,
                         getTitlesWidget: (value, meta) {
                           final index = value.toInt();
                           if (index >= 0 && index < _monthlyData.length) {
+                            // Extract just the month name (e.g. "Nov") to save space
+                            // Assuming _monthlyData[i].month is "Nov 2025"
+                            String fullDate = _monthlyData[index].month;
+                            String shortMonth = fullDate.split(' ')[0];
+
                             return Padding(
                               padding: const EdgeInsets.only(top: 8.0),
                               child: Text(
-                                _monthlyData[index].month,
-                                style: const TextStyle(fontSize: 8), // Smaller font to fit
+                                shortMonth,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.blueGrey,
+                                ),
                               ),
                             );
                           }
@@ -297,18 +363,46 @@ class _AnalysisPageState extends State<AnalysisPage> {
                         },
                       ),
                     ),
-                    leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: true)),
-                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                   ),
-                  borderData: FlBorderData(show: true),
+
+                  borderData: FlBorderData(show: false), // No ugly border box
+
                   lineBarsData: [
                     LineChartBarData(
-                      spots: _monthlyData.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value.total)).toList(),
-                      isCurved: true,
-                      color: Colors.blue,
-                      barWidth: 3,
-                      dotData: const FlDotData(show: true),
+                      spots: _monthlyData.asMap().entries.map((e) {
+                        return FlSpot(e.key.toDouble(), e.value.total);
+                      }).toList(),
+                      isCurved: true, // Smooth curves
+                      curveSmoothness: 0.35,
+                      color: widget.isDarkTheme ? Colors.blueAccent : Colors.blue,
+                      barWidth: 4,
+                      isStrokeCapRound: true,
+
+                      // 3. Add the Dot on the data points
+                      dotData: FlDotData(
+                        show: true,
+                        getDotPainter: (spot, percent, barData, index) {
+                          return FlDotCirclePainter(
+                            radius: 4,
+                            color: Colors.white,
+                            strokeWidth: 2,
+                            strokeColor: Colors.blue,
+                          );
+                        },
+                      ),
+
+                      // 4. Add the Gradient Fill below the line (Modern Look)
+                      belowBarData: BarAreaData(
+                        show: true,
+                        gradient: LinearGradient(
+                          colors: [
+                            Colors.blue.withOpacity(0.3),
+                            Colors.blue.withOpacity(0.0),
+                          ],
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                        ),
+                      ),
                     ),
                   ],
                 ),
